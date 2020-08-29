@@ -1,4 +1,6 @@
-const { increaseTime} = require('@openzeppelin/test-helpers');
+const { time} = require('@openzeppelin/test-helpers');
+const { assert } = require('console');
+
 const votingToken = artifacts.require("Votingtoken");
 
 
@@ -12,8 +14,8 @@ contract("VotingToken Tests", async (accounts) => {
     it("proposal_test", async () => {
         let contract = await votingToken.deployed();
         assert(await contract.decimals() == 0);
-        assert(await contract.name() == "Qvoting");
-        assert(await contract.symbol() == "QV");
+        assert(await contract.name() == 'QVoting');
+        assert(await contract.symbol() == 'QV');
 
         await contract.mint(accounts[2], 5);
         await contract.mint(accounts[1], 2);
@@ -26,7 +28,8 @@ contract("VotingToken Tests", async (accounts) => {
         assert(await contract.totalSupply() == 6);
         await contract.vote(web3.utils.asciiToHex("1"), 4, false, {from: accounts[2]});
         assert(await contract.totalSupply() == 2);
-        await increaseTime(Minute);
-        
+        await time.increase(120);
+        assert(await contract.checkProposal(web3.utils.asciiToHex("1"), {from: accounts[1]}) == true);
+
     });     
 })  

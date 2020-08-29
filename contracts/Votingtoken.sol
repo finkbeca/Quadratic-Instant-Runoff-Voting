@@ -18,6 +18,8 @@ contract Votingtoken {
     mapping(bytes32 => bool) private proposals;
     mapping(bytes32 => uint256) proposalsEnd;
 
+
+
     struct voteeInfo {
         address votee;
         mapping(bytes32 => bool) voted;
@@ -37,6 +39,33 @@ contract Votingtoken {
 
     mapping(bytes32 => votingInfo) results;
     mapping(address => voteeInfo) voteeDB;
+
+
+    //Event when a new proposal is created
+    event newProposal (
+        address issuer,
+        bytes32 proposal,
+        uint256 endTime
+    );
+
+    //Event when an address votes on a proposal
+    event voter(
+        address votee,
+        bytes32 proposal,
+        bool yesVote,
+        uint8 votesCasted,
+        uint256 timeVote
+    );
+       
+    //Event when an proposal is out of time and has been checked.
+    event voteResult(
+        bytes32 proposal,
+        uint256 yesVote,
+        uint256 noVote,
+        bool passed
+    );
+
+       
 
     constructor() public {
         owner = msg.sender;
@@ -81,13 +110,23 @@ contract Votingtoken {
         return _totalSupply;
     }
 
+     /**
+     * @param address_to_check The address to check
+     * @dev Returns the balance of voting tokens of a given address
+     */
     function getBalance(address address_to_check) public view returns(uint8) {
         return _balances[address_to_check];
     }
 
+    /**
+     * @param new_proposal The UID of other unique identifier for proposals, it MUST be unique
+     * @dev Creates a new proposal to be voted on
+     */
     function createProposal(bytes32 new_proposal) public {
+        require(proposals[new_proposal] != true, "Already a proposal by this name");
         proposals[new_proposal] = true;
-        proposalsEnd[new_proposal] = now + vote_waiting_time;
+        uint256 endTime = now + vote_waiting_time;
+        proposalsEnd[new_proposal] = endTime;
 
         votingInfo memory new_prop = votingInfo( {
             proposal: new_proposal,
@@ -98,32 +137,46 @@ contract Votingtoken {
             passed: false
         });
         results[new_proposal] = new_prop;
-
+        emit newProposal(
+            msg.sender, new_proposal, endTime );
         }
 
 
+     /**
+     * @param proposal A valid proposal that has been created, member function checks proposal validity
+     * @dev Checks the outcome of a proposal, for this to be sucessful the time at which this function is called
+     * MUST be after the end Time of the voting. It is purposley not possible to check a proposal midvote.
+     */
     function checkProposal(bytes32 proposal) isProposal(proposal) public returns(bool truth){
         require(voteeDB[msg.sender].voted[proposal] == true, "You must of voted to check proposal");
         require(now > proposalsEnd[proposal]);
         if(results[proposal].yesVotes > results[proposal].noVotes) {
             results[proposal].active = false;
             results[proposal].passed = true;
-            //Emit vote outcome
+            emit voteResult(proposal, results[proposal].yesVotes, results[proposal].noVotes, results[proposal].passed );
             return true;
         }
 
         else {
             results[proposal].active = false;
             results[proposal].passed = false;
+            emit voteResult(proposal, results[proposal].yesVotes, results[proposal].noVotes, results[proposal].passed );
             return false;
         }
     }
 
+     /**
+     * @param proposal A valid proposal that has been created, member function checks proposal validity
+     * @param votes, a number of votes less than or equal to the number of votes an address own to be voted on a certain proposal
+     * @param yesVote, a boolean way to determine whether the vote is yes or no.
+     * @dev Allows an given address to quadratically vote on a proposal given by the proposal name, amount of votes, and type of voting
+     * Each address can only vote ONCE
+     */
     function vote(bytes32 proposal, uint8 votes, bool yesVote) isProposal(proposal) public {
         require(getBalance(msg.sender) >= votes, "You can only vote with as many votes as you currently possess");
         require(now <  proposalsEnd[proposal], "It is past time of voting");
         require(voteeDB[msg.sender].voted[proposal] != true, "You cannot vote twice");
-        
+        uint256 votingTime = now;
         uint8 weight = sqrt(votes);
         burn(msg.sender, votes);
         if(yesVote) {
@@ -136,8 +189,15 @@ contract Votingtoken {
         voteeDB[msg.sender].voted[proposal] = true;
         voteeDB[msg.sender].voteWeight[proposal] = weight;
         voteeDB[msg.sender].proposalYesVote[proposal] = yesVote;
+
+        emit voter (msg.sender, proposal, yesVote, weight, votingTime);
         
     }
+
+     /**
+     * @param num A number whose root we are looking to find
+     * @dev Returns the floored square root of a given number
+     */
     function sqrt(uint8 num) public returns(uint8 root) {
         uint8 z = (num + 1) / 2;
         uint8 y = num;
@@ -148,11 +208,22 @@ contract Votingtoken {
         return y;
     }
 
+     /**
+     * @param address_to_add Address to give votes too
+     * @param votes the given amount of votes to give to a certain address
+     * @dev Currently this is allowing the owner to send this, however the process of this will most often change when 
+     * connected to a dao, it could even be set up automatically to disperse at a given time.
+     */
     function mint(address address_to_add, uint8 votes) public isOwner() {
         _totalSupply += votes;
         _balances[address_to_add] += votes;
     } 
 
+    /**
+     * @param address_to_burn Address to burn votes from
+     * @param votes the given amount of votes to burn to a certain address
+     * @dev Internal function to burn votes after an address votes on an issue.
+     */
     function burn(address address_to_burn, uint8 votes) internal {
         require(getBalance(address_to_burn) >= votes, "Cannot burn more votes then address owns");
         _totalSupply -= votes;
